@@ -30,24 +30,27 @@ grouping_radius = 90
 
 infection_rate = 0.01
 
-recovery_rate = 0.6
+recovery_rate = 0.3
+quarantine_time = FPS * 20
   
-vaccination_rate = 0.3
+vaccination_succes_probability = 0.7
+vaccination_rate = 0.1
 
 death_count = 0
 
 class Agent:
-    def __init__(self, position=None, velocity=None, speed=2, state="S"):
+    def __init__(self, position=None, velocity=None, state="S"):
         self.position = position or pygame.math.Vector2(random.uniform(0, SCREEN_WIDTH), random.uniform(0, SCREEN_HEIGHT))
         self.velocity = velocity or pygame.math.Vector2(random.uniform(-1, 1), random.uniform(-1, 1)).normalize()
-        self.speed = speed
+        self.speed = random.uniform(1,2)
         self.state = state
         self.color = BLUE if state == "S" else (RED if state == "I" else GREEN)
         self.infection_timer = 0
-        self.recovery_duration = FPS * (random.uniform(10,60))
+        self.recovery_duration = FPS * (random.uniform(5,15))
         self.proximity_duration = 0  # Time spent near an infected agent
         self.in_quarantine = False
         self.time_in_quarantine = 0
+        self.will_vax = False if random.random() < vaccination_rate else True
 
     def update_state(self):
         self.color = BLUE if self.state == "S" else (RED if self.state == "I" else GREEN)
@@ -70,29 +73,11 @@ class Agent:
         self.position.y = max(0, min(self.position.y, SCREEN_HEIGHT))
 
     def draw(self):
-        if self.state == "S" and self.proximity_duration > 0:
-            fade_factor = min(1.0, self.proximity_duration / 100)  # Scale between 0 and 1
-            self.color = (int(BLUE[0] + fade_factor * (RED[0] - BLUE[0])),
-                        int(BLUE[1] + fade_factor * (RED[1] - BLUE[1])),
-                        int(BLUE[2] + fade_factor * (RED[2] - BLUE[2])))
-
-        pygame.draw.circle(screen, self.color, (int(self.position.x), int(self.position.y)), 4)
-        if self.state == "I":
-            pygame.draw.circle(screen, RED, (int(self.position.x), int(self.position.y)), infection_radius, width=1)
-
-    def enter_quarantine(self):
-        self.in_quarantine = True
-        self.time_in_quarantine = 0  # Reset the time in quarantine when they enter
-
-    def update_quarantine_time(self):
-        if self.in_quarantine:
-            self.time_in_quarantine += 1
+        pygame.draw.circle(screen, self.color, (int(self.position.x), int(self.position.y)), 3)
     
     def move_in_quarantine(self, rectangle):
         """Move the agent inside the quarantine zone, keeping it within the bounds."""
         if self.in_quarantine:
-            zone_center = pygame.math.Vector2(self.position.x, self.position.y)  # Get the current position of the agent
-
             # Make sure the agent stays within the quarantine area by checking bounds
             quarantine_zone = rectangle  # Example zone bounds
 
@@ -103,28 +88,34 @@ class Agent:
 
             self.position += self.velocity * self.speed
 
+    def exit_quarantine(self, rectangle):
+        if self.in_quarantine:
+            self.in_quarantine = False
+            self.time_in_quarantine = 0
+            # Move the agent outside the quarantine zone, here we choose a position outside on the right side
+            self.position = pygame.math.Vector2(rectangle.right + 10, self.position.y)
+
 class QuarantineZone:
-    def __init__(self, x, y, width, height, avoidance_radius=100, avoidance_strength=1, quarantine_time=300):
+    def __init__(self, x, y, width, height, avoidance_radius, avoidance_strength):
         self.rect = pygame.Rect(x, y, width, height)
         self.color = GRAY
         self.avoidance_radius = avoidance_radius
         self.avoidance_strength = avoidance_strength
-        self.quarantine_time = quarantine_time  # Time infected agents stay in the quarantine zone
-        self.infected_agents_in_quarantine = []
+        self.agents_in_quarantine = []
 
     def draw(self):
         """Draw the quarantine zone."""
         pygame.draw.rect(screen, self.color, self.rect, 2)  # 2 pixel border
         # Add some transparency to fill
         s = pygame.Surface((self.rect.width, self.rect.height))
-        s.set_alpha(50)
+        s.set_alpha(30)
         s.fill(self.color)
         screen.blit(s, (self.rect.x, self.rect.y))
 
     def steer_agents(self, agents):
         """Steer non-infected agents away from the quarantine zone."""
         for agent in agents:
-            if agent.state != "I":  # Only affect susceptible or recovered agents
+            if agent.state != "I" or agent.will_vax is False:  # Only affect susceptible or recovered agents
                 distance = agent.position.distance_to(pygame.math.Vector2(self.rect.centerx, self.rect.centery))
                 if distance <= self.avoidance_radius:  # Agent is within avoidance range
                     self.steer_away(agent)
@@ -155,28 +146,14 @@ class QuarantineZone:
 
             # Check if the agent has reached the quarantine zone
             if agent.position.distance_to(zone_center) < infection_radius:
-                agent.enter_quarantine()
-    
-    def check_quarantine_status(self, agents):
-        """Check and update the quarantine status for each agent."""
-        for agent in agents:
-            if agent.in_quarantine:
-                agent.update_quarantine_time()
-                if agent.time_in_quarantine >= self.quarantine_time:
-                    agent.state = "R"  # Once the agent has been in quarantine for long enough, they recover
-                    agent.update_state()
-                    agent.in_quarantine = False  # Exit quarantine
-                    agent.time_in_quarantine = 0  # Reset time
-
-def vaccinate_agents(agents, vaccination_probability, success_rate):
-    for agent in agents:
-        if agent.state == "S" and random.random() < vaccination_probability:
-            if random.random() < success_rate:
-                agent.state = "R"
-                agent.update_state()
+                self.agents_in_quarantine.append(agent)
+                agent.in_quarantine = True
 
 def infect_random_agent(agents):
     agents[random.randint(0, len(agents) - 1)].state = "I"
+
+def add_sus_agent(agents):
+    agents.append(Agent())
 
 def plot_population_stats(stats):
     # Simple terminal-based plot (extend to graphs if desired)
@@ -203,8 +180,8 @@ class Simulation:
             SCREEN_HEIGHT - 500,
             350,
             200,
-            150,
-            10
+            200,
+            5
         )
 
         self.stats = []
@@ -228,7 +205,7 @@ class Simulation:
    
         global infection_rate
         global recovery_rate
-        global vaccination_rate
+        global vaccination_succes_probability
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -236,6 +213,8 @@ class Simulation:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_q:
                     infect_random_agent(self.agents)
+                elif event.key == pygame.K_z:
+                    add_sus_agent(self.agents)
                 elif event.key == pygame.K_0:
                    infection_rate = min(1.00, infection_rate + 0.05)
                 elif event.key == pygame.K_1:
@@ -245,9 +224,9 @@ class Simulation:
                 elif event.key == pygame.K_3:
                    recovery_rate = max(0.00, recovery_rate - 0.05)
                 elif event.key == pygame.K_4:
-                   vaccination_rate = min(1.00, vaccination_rate + 0.05)
+                   vaccination_succes_probability = min(1.00, vaccination_succes_probability + 0.05)
                 elif event.key == pygame.K_5:
-                   vaccination_rate = max(0.00, vaccination_rate - 0.05)
+                   vaccination_succes_probability = max(0.00, vaccination_succes_probability - 0.05)
 
     def update_agents(self):
 
@@ -257,11 +236,14 @@ class Simulation:
     def handle_grouping(self):
         """Handle the grouping of infected agents and redirect them to the quarantine zone."""
         for agent in self.agents:
-            if agent.state == "I":
+            if agent.state == "I" and agent.will_vax == True:
                 nearby_infected = [
-                    other_agent for other_agent in self.agents if other_agent.state == "I" and agent.position.distance_to(other_agent.position) < grouping_radius
+                    other_agent for other_agent in self.agents 
+                    if other_agent.state == "I"
+                    and other_agent.will_vax == True 
+                    and agent.position.distance_to(other_agent.position) < grouping_radius
                 ]
-                if len(nearby_infected) > 1:  # If there are nearby infected agents, form a group
+                if len(nearby_infected) >= 1:  # If there are nearby infected agents, form a group
                     group_center = pygame.math.Vector2(0, 0)
                     for nearby_agent in nearby_infected:
                         group_center += nearby_agent.position
@@ -297,9 +279,15 @@ class Simulation:
                                 other_agent.proximity_duration = 0
 
     def handle_quarantine(self):
-        for agent in self.agents:
-            if agent.in_quarantine:
-                agent.move_in_quarantine(self.quarantine.rect)
+
+        for agent in self.quarantine.agents_in_quarantine:
+            if agent.time_in_quarantine >= quarantine_time:
+                if random.random() < vaccination_succes_probability:
+                    agent.state = "R"
+                agent.will_vax = False
+                agent.exit_quarantine(self.quarantine.rect)
+            else:
+                agent.time_in_quarantine += 1
         self.quarantine.steer_agents(self.agents)
 
     def handle_death(self):
@@ -309,7 +297,7 @@ class Simulation:
                 agent.infection_timer += 1
                 if agent.infection_timer >= agent.recovery_duration:
                     if random.random() < recovery_rate:
-                        agent.state = "R"  # Recover
+                        agent.state = "S"  # Recover
                         agent.update_state()  # Update the color
                     else:
                         self.agents.remove(agent)  # Simulate death by removing agent
@@ -318,16 +306,19 @@ class Simulation:
     def draw_legend(self):
     
         infect_text = FONT.render('Infect Random Agent: Press Q', True, BLACK)
+        sus_text = FONT.render('Add Susceptible Agent: Press Z', True, BLACK)
         infection_rate_text = FONT.render(f'Infection Rate: {infection_rate:.2f}', True, BLACK)
         recovery_rate_text = FONT.render(f'Recovery Rate: {recovery_rate:.2f}', True, BLACK)
-        vaccination_rate_text = FONT.render(f'Vaccination Rate: {vaccination_rate:.2f}', True, BLACK)
+        vaccination_rate_text = FONT.render(f'Vax Succes Rate: {vaccination_succes_probability:.2f}', True, BLACK)
         death_count_text = FONT.render(f'Death count: {death_count}',True, BLACK)
 
-        screen.blit(infect_text, (10, 10))
-        screen.blit(infection_rate_text, (10, 30))
-        screen.blit(recovery_rate_text, (10, 50))
-        screen.blit(vaccination_rate_text, (10, 70))
-        screen.blit(death_count_text, (SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30))
+        screen.blit(infect_text, (20, 10))
+        screen.blit(sus_text,(20,30))
+        screen.blit(infection_rate_text, (20, 730))
+        screen.blit(recovery_rate_text, (20, 750))
+        screen.blit(vaccination_rate_text, (20, 770))
+        screen.blit(death_count_text, (SCREEN_WIDTH - 180, SCREEN_HEIGHT - 30))
+        
 
     def render(self):
         
