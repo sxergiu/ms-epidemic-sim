@@ -1,6 +1,6 @@
-
 import pygame
 import random
+import matplotlib.pyplot as plot
 
 # Initialize Pygame
 pygame.init()
@@ -25,16 +25,18 @@ clock = pygame.time.Clock()
 FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
+slowdown = 1
+speedup = 1
+
+repel_dist = 10
 infection_radius = 30
-grouping_radius = 120
+grouping_radius = 90
 
-infection_probability = 0.01
-recovery_probability = 0.3
-vaccination_succes_probability = 0.7
+infection_probability = 0.7
+recovery_probability = 0.2
+vaccination_succes_probability = 0.6
 
-vaccination_rate = 0.6
-
-
+vaccination_rate = 0.8
 
 infection_rate = 0
 recovery_rate = 0
@@ -46,13 +48,13 @@ class Agent:
     def __init__(self, position=None, velocity=None, state="S"):
         self.position = position or pygame.math.Vector2(random.uniform(0, SCREEN_WIDTH), random.uniform(0, SCREEN_HEIGHT))
         self.velocity = velocity or pygame.math.Vector2(random.uniform(-1, 1), random.uniform(-1, 1)).normalize()
-        self.speed = random.uniform(1,2)
+        self.speed = 1
         self.state = state
         self.color = BLUE if state == "S" else (RED if state == "I" else GREEN)
         self.infection_timer = 0
-        self.recovery_duration = FPS * (random.uniform(5,15))
+        self.recovery_duration = FPS * (random.uniform(5,10))
         self.proximity_duration = 0  # Time spent near an infected agent
-        self.quarantine_time = FPS * random.uniform(10,30)
+        self.quarantine_time = FPS * (random.uniform(10,30))
         self.in_quarantine = False
         self.time_in_quarantine = 0
         self.will_vax = True if random.random() < vaccination_rate else False
@@ -61,8 +63,6 @@ class Agent:
 
     def update_state(self):
         self.color = BLUE if self.state == "S" else (RED if self.state == "I" else GREEN)
-        if self.color == BLUE: self.speed = random.uniform(1,2)
-        elif self.color == GREEN: self.speed = random.uniform(3,4)
 
     def update_position(self):
         """Update the agent's position based on its velocity and speed."""
@@ -84,6 +84,8 @@ class Agent:
     def draw(self):
         if self.state == "I":
             pygame.draw.circle(screen, RED, (int(self.position.x), int(self.position.y)), infection_radius, width=1)
+        if self.state == "S":
+            pygame.draw.circle(screen, BLUE, (int(self.position.x), int(self.position.y)), repel_dist-5, width=1)
         pygame.draw.circle(screen, self.color, (int(self.position.x), int(self.position.y)), 3)
     
     def move_in_quarantine(self, rectangle):
@@ -99,12 +101,25 @@ class Agent:
 
             self.position += self.velocity * self.speed
 
-    def exit_quarantine(self, rectangle):
-        if self.in_quarantine:
+    def exit_quarantine(self, rectangle, succes):
             self.in_quarantine = False
-            self.time_in_quarantine = 0
-            # Move the agent outside the quarantine zone, here we choose a position outside on the right side
+            self.state = "R" if succes else "S"
+            self.update_state()
             self.position = pygame.math.Vector2(self.position.x, rectangle.top)
+
+    def repel_from_others(self, agents, min_distance=repel_dist):
+        """Steer the agent away from others if they are too close."""
+        for other_agent in agents:
+            if other_agent is not self:  # Don't compare the agent to itself
+                distance = self.position.distance_to(other_agent.position)
+                if distance < min_distance:
+                    # Calculate the repulsion direction
+                    repulsion_direction = self.position - other_agent.position
+                    if repulsion_direction.length() > 0:
+                        repulsion_direction = repulsion_direction.normalize()
+                    self.velocity += repulsion_direction * 0.1  # Adjust repulsion strength
+                    self.velocity = self.velocity.normalize()
+
 
 class QuarantineZone:
     def __init__(self, x, y, width, height, avoidance_radius, avoidance_strength):
@@ -113,6 +128,7 @@ class QuarantineZone:
         self.avoidance_radius = avoidance_radius
         self.avoidance_strength = avoidance_strength
         self.agents_in_quarantine = []
+        self.quarantine_delay = 0
 
     def draw(self):
         """Draw the quarantine zone."""
@@ -152,7 +168,7 @@ class QuarantineZone:
             agent.velocity += steering_direction * 0.1  # Modify the velocity to move towards the quarantine center
 
             # Normalize the velocity to avoid fast movement
-            if agent.velocity.length() >= 1:
+            if agent.velocity.length() > 1:
                 agent.velocity = agent.velocity.normalize()
 
             # Check if the agent has reached the quarantine zone
@@ -162,22 +178,71 @@ class QuarantineZone:
 
 def infect_random_agent(agents):
     global infection_rate
-    agents[random.randint(0, len(agents) - 1)].state = "I"
+    index = random.randint(0,len(agents) - 1) 
+    agents[index].state = "I"
+    agents[index].update_state()
     infection_rate += 1
 
 def add_sus_agent(agents):
     agents.append(Agent())
 
 def plot_population_stats(stats):
-    # Simple terminal-based plot (extend to graphs if desired)
-    print("Time:", len(stats), " | ", stats[-1])
+    time_steps = [i for i in range(len(stats))]
+    susceptible = [stat[0] for stat in stats]
+    infected = [stat[1] for stat in stats]
+    recovered = [stat[2] for stat in stats]
+    death_count = [stat[3] for stat in stats]
+    vax_succes_rate = [stat[4] for stat in stats]
+    vax_fail_rate = [stat[5] for stat in stats]
+    infection_rate = [stat[6] for stat in stats]
+    recovery_rate = [stat[7] for stat in stats]
+
+    plot.figure(figsize=(10, 6))
+    
+    # Plot agent population
+    plot.subplot(3, 1, 1)
+    plot.plot(time_steps, susceptible, label='Susceptible', color='blue')
+    plot.plot(time_steps, infected, label='Infected', color='red')
+    plot.plot(time_steps, recovered, label='Recovered', color='green')
+    plot.xlabel('Time')
+    plot.ylabel('Population')
+    plot.legend()
+    plot.title('Epidemic Population Over Time')
+
+    # Plot infection and recovery rates
+    plot.subplot(3, 1, 2)
+    plot.plot(time_steps, infection_rate, label='Infection Rate', color='purple')
+    plot.plot(time_steps, death_count, label='Virus Kill Count', color='orange')
+    plot.xlabel('Time')
+    plot.ylabel('Tragedy')
+    plot.legend()
+    plot.title('Epidemic Casulaties Over Time')
+
+    plot.subplot(3, 1, 3)
+    plot.plot(time_steps, recovery_rate, label='Recovered Patients', color='yellow')
+    plot.plot(time_steps, vax_fail_rate, label='Failed Vaccines', color='green')
+    plot.plot(time_steps, vax_succes_rate, label='Succesful Vaccines', color='blue')
+    plot.xlabel('Time')
+    plot.ylabel('Vaccine efficiencly')
+    plot.legend()
+    plot.title('Epidemic Impact Over Time')
+
+    plot.tight_layout()
+    plot.show()
+
 
 def track_history(agents, stats):
+    global death_count
+    global failed_vax_rate
+    global successful_vax_rate
+    global infection_rate
+    global recovery_rate
+
     susceptible = sum(1 for a in agents if a.state == "S")
     infected = sum(1 for a in agents if a.state == "I")
     recovered = sum(1 for a in agents if a.state == "R")
-    stats.append((susceptible, infected, recovered, death_count))
 
+    stats.append((susceptible, infected, recovered, death_count, failed_vax_rate, successful_vax_rate, infection_rate, recovery_rate ))
 
 class Simulation:
      
@@ -194,8 +259,8 @@ class Simulation:
         self.quarantine = QuarantineZone(
             SCREEN_WIDTH - 600,
             SCREEN_HEIGHT - 400,
-            300,
-            150,
+            200,
+            100,
             200,
             5
         )
@@ -216,7 +281,8 @@ class Simulation:
             self.slow_down_infected_agents()
             self.speed_up_recovered_agents()
             self.render()
-
+        
+        plot_population_stats(self.stats)
         pygame.quit()
 
     def handle_events(self):
@@ -246,12 +312,14 @@ class Simulation:
                 elif event.key == pygame.K_6:
                    vaccination_succes_probability = max(0.00, vaccination_succes_probability - 0.05)
                 elif event.key == pygame.K_r:
+                    plot_population_stats(self.stats)
                     self.__init__()
 
     def update_agents(self):
 
         for agent in self.agents:
             agent.update_position()
+            agent.repel_from_others(self.agents)
 
     def handle_grouping(self):
         """Handle the grouping of infected agents and redirect them to the quarantine zone."""
@@ -263,7 +331,7 @@ class Simulation:
                     and other_agent.will_vax == True 
                     and agent.position.distance_to(other_agent.position) < grouping_radius
                 ]
-                if len(nearby_infected) >= 1:  # If there are nearby infected agents, form a group
+                if len(nearby_infected) > 1:  # If there are nearby infected agents, form a group
                     group_center = pygame.math.Vector2(0, 0)
                     for nearby_agent in nearby_infected:
                         group_center += nearby_agent.position
@@ -288,7 +356,7 @@ class Simulation:
 
                                 # Infection probability increases with time spent close
                                 aux_infection_probability = infection_probability + (proximity_factor * other_agent.proximity_duration)
-                                aux_infection_probability = min(1.0, aux_infection_probability)  # Cap at 100%
+                                aux_infection_probability = min(0.8, aux_infection_probability)  # Cap at 100%
 
                                 # Determine infection based on probability
                                 if random.random() < aux_infection_probability:
@@ -303,19 +371,24 @@ class Simulation:
     def handle_quarantine(self):
         global successful_vax_rate
         global failed_vax_rate
+        global recovery_rate
+        succes = False
+        self.quarantine.quarantine_delay += 1
 
         for agent in self.quarantine.agents_in_quarantine:
             if agent.time_in_quarantine >= agent.quarantine_time:
                 if random.random() < vaccination_succes_probability:
+                    succes = True
                     successful_vax_rate += 1
-                    agent.state = "R"
+                    recovery_rate += 1
                 else:
                     failed_vax_rate += 1
-                    agent.state = "S"
-                agent.update_state()
-                agent.exit_quarantine(self.quarantine.rect)
+        
+                self.quarantine.agents_in_quarantine.remove(agent)
+                agent.exit_quarantine(self.quarantine.rect, succes)
             else:
                 agent.time_in_quarantine += 1
+
         self.quarantine.steer_agents(self.agents)
 
     def handle_death(self):
@@ -333,14 +406,14 @@ class Simulation:
                         self.agents.remove(agent)  # Simulate death by removing agent
                         death_count += 1
     
-    def slow_down_infected_agents(self, slowdown_factor=0.65):
+    def slow_down_infected_agents(self, slowdown_factor=slowdown):
         """Slows down all infected agents by a given factor."""
         for agent in self.agents:
             if agent.state == "I" and agent.slowdown is False:  # Check if the agent is infected
                 agent.speed *= slowdown_factor  # Reduce the speed by the slowdown factor
                 agent.slowdown = True
 
-    def speed_up_recovered_agents(self, speedup_factor = 5):
+    def speed_up_recovered_agents(self, speedup_factor = speedup):
         for agent in self.agents:
             if agent.state == "R" and agent.speedup is False:  # Check if the agent is infected
                 agent.speed *= speedup_factor  # Reduce the speed by the slowdown factor
@@ -371,7 +444,6 @@ class Simulation:
         screen.fill(WHITE)
 
         self.draw_legend()
-        #self.draw_stats()
 
         for agent in self.agents:
              agent.update_state()
@@ -380,10 +452,7 @@ class Simulation:
         self.quarantine.draw()
 
         track_history(self.agents, self.stats)
-        if len(self.stats) % 60 == 0:  # Plot every second
-            plot_population_stats(self.stats)
-
-        pygame.display.flip()
+        pygame.display.flip()        
 
 if __name__ == "__main__":
     sim = Simulation()
