@@ -26,16 +26,20 @@ FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
 infection_radius = 30
-grouping_radius = 90
+grouping_radius = 120
 
-infection_rate = 0.01
-
-recovery_rate = 0.3
-quarantine_time = FPS * 20
-  
+infection_probability = 0.01
+recovery_probability = 0.3
 vaccination_succes_probability = 0.7
-vaccination_rate = 0.1
 
+vaccination_rate = 0.6
+
+
+
+infection_rate = 0
+recovery_rate = 0
+successful_vax_rate = 0
+failed_vax_rate = 0
 death_count = 0
 
 class Agent:
@@ -48,13 +52,17 @@ class Agent:
         self.infection_timer = 0
         self.recovery_duration = FPS * (random.uniform(5,15))
         self.proximity_duration = 0  # Time spent near an infected agent
+        self.quarantine_time = FPS * random.uniform(10,30)
         self.in_quarantine = False
         self.time_in_quarantine = 0
         self.will_vax = True if random.random() < vaccination_rate else False
         self.slowdown = False
+        self.speedup = False
 
     def update_state(self):
         self.color = BLUE if self.state == "S" else (RED if self.state == "I" else GREEN)
+        if self.color == BLUE: self.speed = random.uniform(1,2)
+        elif self.color == GREEN: self.speed = random.uniform(3,4)
 
     def update_position(self):
         """Update the agent's position based on its velocity and speed."""
@@ -96,7 +104,7 @@ class Agent:
             self.in_quarantine = False
             self.time_in_quarantine = 0
             # Move the agent outside the quarantine zone, here we choose a position outside on the right side
-            self.position = pygame.math.Vector2(rectangle.right + 10, self.position.y)
+            self.position = pygame.math.Vector2(self.position.x, rectangle.top)
 
 class QuarantineZone:
     def __init__(self, x, y, width, height, avoidance_radius, avoidance_strength):
@@ -153,7 +161,9 @@ class QuarantineZone:
                 agent.in_quarantine = True
 
 def infect_random_agent(agents):
+    global infection_rate
     agents[random.randint(0, len(agents) - 1)].state = "I"
+    infection_rate += 1
 
 def add_sus_agent(agents):
     agents.append(Agent())
@@ -172,6 +182,9 @@ def track_history(agents, stats):
 class Simulation:
      
     def __init__(self, num_agents = 100, num_infected = 0):
+        
+        global infection_rate
+        infection_rate += num_infected
 
         self.agents = [Agent() for _ in range(num_agents)]
 
@@ -181,8 +194,8 @@ class Simulation:
         self.quarantine = QuarantineZone(
             SCREEN_WIDTH - 600,
             SCREEN_HEIGHT - 400,
-            350,
-            200,
+            300,
+            150,
             200,
             5
         )
@@ -201,14 +214,15 @@ class Simulation:
             self.handle_grouping()
             self.handle_death()
             self.slow_down_infected_agents()
+            self.speed_up_recovered_agents()
             self.render()
 
         pygame.quit()
 
     def handle_events(self):
    
-        global infection_rate
-        global recovery_rate
+        global infection_probability
+        global recovery_probability
         global vaccination_succes_probability
 
         for event in pygame.event.get():
@@ -219,17 +233,17 @@ class Simulation:
                     infect_random_agent(self.agents)
                 elif event.key == pygame.K_z:
                     add_sus_agent(self.agents)
-                elif event.key == pygame.K_0:
-                   infection_rate = min(1.00, infection_rate + 0.05)
                 elif event.key == pygame.K_1:
-                    infection_rate = max(0.00, infection_rate - 0.05)
+                   infection_probability = min(1.00, infection_probability + 0.05)
                 elif event.key == pygame.K_2:
-                   recovery_rate = min(1.00, recovery_rate + 0.05)
+                    infection_probability = max(0.00, infection_probability - 0.05)
                 elif event.key == pygame.K_3:
-                   recovery_rate = max(0.00, recovery_rate - 0.05)
+                   recovery_probability = min(1.00, recovery_probability + 0.05)
                 elif event.key == pygame.K_4:
-                   vaccination_succes_probability = min(1.00, vaccination_succes_probability + 0.05)
+                   recovery_probability = max(0.00, recovery_probability - 0.05)
                 elif event.key == pygame.K_5:
+                   vaccination_succes_probability = min(1.00, vaccination_succes_probability + 0.05)
+                elif event.key == pygame.K_6:
                    vaccination_succes_probability = max(0.00, vaccination_succes_probability - 0.05)
                 elif event.key == pygame.K_r:
                     self.__init__()
@@ -259,6 +273,7 @@ class Simulation:
                     self.quarantine.redirect_group_to_quarantine(nearby_infected)
     
     def handle_infections(self):
+        global infection_rate
         for agent in self.agents:
             if agent.state == "I":  # Only infected agents can infect others
                     for other_agent in self.agents:
@@ -272,25 +287,32 @@ class Simulation:
                                 other_agent.proximity_duration += 1
 
                                 # Infection probability increases with time spent close
-                                infection_probability = infection_rate + (0.01 * other_agent.proximity_duration)
-                                infection_probability = min(1.0, infection_probability)  # Cap at 100%
+                                aux_infection_probability = infection_probability + (proximity_factor * other_agent.proximity_duration)
+                                aux_infection_probability = min(1.0, aux_infection_probability)  # Cap at 100%
 
                                 # Determine infection based on probability
-                                if random.random() < infection_probability:
+                                if random.random() < aux_infection_probability:
                                     other_agent.state = "I"
                                     other_agent.update_state()
+                                    infection_rate += 1
                                     other_agent.proximity_duration = 0  # Reset duration after infection
                             else:
                                 # Reset proximity duration if agent moves out of range
                                 other_agent.proximity_duration = 0
 
     def handle_quarantine(self):
+        global successful_vax_rate
+        global failed_vax_rate
 
         for agent in self.quarantine.agents_in_quarantine:
-            if agent.time_in_quarantine >= quarantine_time:
+            if agent.time_in_quarantine >= agent.quarantine_time:
                 if random.random() < vaccination_succes_probability:
+                    successful_vax_rate += 1
                     agent.state = "R"
-                agent.will_vax = False
+                else:
+                    failed_vax_rate += 1
+                    agent.state = "S"
+                agent.update_state()
                 agent.exit_quarantine(self.quarantine.rect)
             else:
                 agent.time_in_quarantine += 1
@@ -298,11 +320,13 @@ class Simulation:
 
     def handle_death(self):
         global death_count
+        global recovery_rate
         for agent in self.agents:
             if agent.state == "I":
                 agent.infection_timer += 1
                 if agent.infection_timer >= agent.recovery_duration:
-                    if random.random() < recovery_rate:
+                    if random.random() <= recovery_probability:
+                        recovery_rate += 1
                         agent.state = "S"  # Recover
                         agent.update_state()  # Update the color
                     else:
@@ -316,22 +340,30 @@ class Simulation:
                 agent.speed *= slowdown_factor  # Reduce the speed by the slowdown factor
                 agent.slowdown = True
 
+    def speed_up_recovered_agents(self, speedup_factor = 5):
+        for agent in self.agents:
+            if agent.state == "R" and agent.speedup is False:  # Check if the agent is infected
+                agent.speed *= speedup_factor  # Reduce the speed by the slowdown factor
+                agent.speedup = True
+
 
     def draw_legend(self):
     
         infect_text = FONT.render('Infect Random Agent: Press Q', True, BLACK)
         sus_text = FONT.render('Add Susceptible Agent: Press Z', True, BLACK)
-        infection_rate_text = FONT.render(f'Infection Rate: {infection_rate:.2f}', True, BLACK)
-        recovery_rate_text = FONT.render(f'Recovery Rate: {recovery_rate:.2f}', True, BLACK)
+        infection_probability_text = FONT.render(f'Infection Rate: {infection_probability:.2f}', True, BLACK)
+        recovery_probability_text = FONT.render(f'Recovery Rate: {recovery_probability:.2f}', True, BLACK)
         vaccination_rate_text = FONT.render(f'Vax Succes Rate: {vaccination_succes_probability:.2f}', True, BLACK)
         death_count_text = FONT.render(f'Death count: {death_count}',True, BLACK)
+        total_count_text = FONT.render(f'Agent count: {len(self.agents)}', True, BLACK )
 
         screen.blit(infect_text, (20, 10))
         screen.blit(sus_text,(20,30))
-        screen.blit(infection_rate_text, (20, 730))
-        screen.blit(recovery_rate_text, (20, 750))
+        screen.blit(infection_probability_text, (20, 730))
+        screen.blit(recovery_probability_text, (20, 750))
         screen.blit(vaccination_rate_text, (20, 770))
-        screen.blit(death_count_text, (SCREEN_WIDTH - 180, SCREEN_HEIGHT - 30))
+        screen.blit(death_count_text, (SCREEN_WIDTH - 140, SCREEN_HEIGHT - 30))
+        screen.blit(total_count_text, (SCREEN_WIDTH - 160, SCREEN_HEIGHT - 50))
         
 
     def render(self):
