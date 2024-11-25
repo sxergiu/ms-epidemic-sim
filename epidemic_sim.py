@@ -6,7 +6,7 @@ import random
 pygame.init()
 
 # Screen dimensions
-SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
+SCREEN_WIDTH, SCREEN_HEIGHT = 1300, 800
 
 # Colors
 WHITE = (255, 255, 255)
@@ -16,7 +16,7 @@ GREEN = (0, 255, 0)      # Recovered
 BLUE = (0, 0, 255)       # Susceptible
 GRAY = (169, 169, 169)   # Quarantine zones
 
-FPS = 60
+FPS = 144
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Epidemic Simulation")
@@ -26,11 +26,15 @@ FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
 infection_radius = 30
-grouping_radius = 15
+grouping_radius = 90
 
-infection_rate = 0.1
+infection_rate = 0.01
+
 recovery_rate = 0.6
+  
 vaccination_rate = 0.3
+
+death_count = 0
 
 class Agent:
     def __init__(self, position=None, velocity=None, speed=2, state="S"):
@@ -40,10 +44,10 @@ class Agent:
         self.state = state
         self.color = BLUE if state == "S" else (RED if state == "I" else GREEN)
         self.infection_timer = 0
-        self.trail = []
-        self.max_trail_length = 10
+        self.recovery_duration = FPS * (random.uniform(10,60))
+        self.proximity_duration = 0  # Time spent near an infected agent
         self.in_quarantine = False
-        self.time_in_quarantine = 0  # Track time in quarantine zone
+        self.time_in_quarantine = 0
 
     def update_state(self):
         self.color = BLUE if self.state == "S" else (RED if self.state == "I" else GREEN)
@@ -53,7 +57,6 @@ class Agent:
         if not self.in_quarantine:  # Only update position if not in quarantine
             self.position += self.velocity * self.speed
             self._bounce_off_walls()
-            self._update_trail()
 
     def _bounce_off_walls(self):
         """Bounce the agent off the screen edges."""
@@ -66,23 +69,16 @@ class Agent:
         self.position.x = max(0, min(self.position.x, SCREEN_WIDTH))
         self.position.y = max(0, min(self.position.y, SCREEN_HEIGHT))
 
-    def _update_trail(self):
-        """Update the trail of the agent for visualization."""
-        self.trail.append(self.position.copy())
-        if len(self.trail) > self.max_trail_length:
-            self.trail.pop(0)
-
-    def draw_trail(self):
-        """Draw the trail of the agent."""
-        if len(self.trail) > 1:
-            pygame.draw.lines(screen, self.color, False, [(int(p.x), int(p.y)) for p in self.trail], 1)
-
     def draw(self):
-        if self.state == "I":
-            pygame.draw.circle(screen, RED, (int(self.position.x), int(self.position.y)), infection_radius, width=1)
+        if self.state == "S" and self.proximity_duration > 0:
+            fade_factor = min(1.0, self.proximity_duration / 100)  # Scale between 0 and 1
+            self.color = (int(BLUE[0] + fade_factor * (RED[0] - BLUE[0])),
+                        int(BLUE[1] + fade_factor * (RED[1] - BLUE[1])),
+                        int(BLUE[2] + fade_factor * (RED[2] - BLUE[2])))
 
         pygame.draw.circle(screen, self.color, (int(self.position.x), int(self.position.y)), 4)
-        self.draw_trail()
+        if self.state == "I":
+            pygame.draw.circle(screen, RED, (int(self.position.x), int(self.position.y)), infection_radius, width=1)
 
     def enter_quarantine(self):
         self.in_quarantine = True
@@ -106,17 +102,6 @@ class Agent:
                 self.velocity = direction_to_center.normalize()  # Normalize to prevent high-speed movement
 
             self.position += self.velocity * self.speed
-            self._update_trail()
-
-def infect_agents(agents, infection_radius, infection_probability):
-    for agent in agents:
-        if agent.state == "I":  # Only infected agents can infect others
-            for other_agent in agents:
-                if other_agent.state == "S":  # Only infect susceptible agents
-                    distance = agent.position.distance_to(other_agent.position)
-                    if distance <= infection_radius and random.random() < infection_probability:
-                        other_agent.state = "I"
-                        other_agent.update_state()
 
 class QuarantineZone:
     def __init__(self, x, y, width, height, avoidance_radius=100, avoidance_strength=1, quarantine_time=300):
@@ -190,6 +175,9 @@ def vaccinate_agents(agents, vaccination_probability, success_rate):
                 agent.state = "R"
                 agent.update_state()
 
+def infect_random_agent(agents):
+    agents[random.randint(0, len(agents) - 1)].state = "I"
+
 def plot_population_stats(stats):
     # Simple terminal-based plot (extend to graphs if desired)
     print("Time:", len(stats), " | ", stats[-1])
@@ -200,9 +188,10 @@ def track_history(agents, stats):
     recovered = sum(1 for a in agents if a.state == "R")
     stats.append((susceptible, infected, recovered))
 
+
 class Simulation:
      
-    def __init__(self, num_agents = 50, num_infected = 0):
+    def __init__(self, num_agents = 100, num_infected = 0):
 
         self.agents = [Agent() for _ in range(num_agents)]
 
@@ -227,10 +216,10 @@ class Simulation:
             clock.tick(FPS)
             self.handle_events()
             self.update_agents()
-            self.handle_collisions()
             self.handle_quarantine()
             self.handle_infections()
             self.handle_grouping()
+            self.handle_death()
             self.render()
 
         pygame.quit()
@@ -246,7 +235,7 @@ class Simulation:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_q:
-                    self.infect_agent()
+                    infect_random_agent(self.agents)
                 elif event.key == pygame.K_0:
                    infection_rate = min(1.00, infection_rate + 0.05)
                 elif event.key == pygame.K_1:
@@ -260,23 +249,10 @@ class Simulation:
                 elif event.key == pygame.K_5:
                    vaccination_rate = max(0.00, vaccination_rate - 0.05)
 
-                
-    def infect_agent(self):
-        self.agents[random.randint(0, len(self.agents) - 1)].state = "I"
-
     def update_agents(self):
 
         for agent in self.agents:
             agent.update_position()
-
-    def handle_collisions(self):
-      
-        for agent in self.agents:
-            for other_agent in self.agents[:]:
-                if agent.position.distance_to(other_agent.position) < infection_radius:
-                    if( agent.state=="I" and other_agent.state=='S'):
-                        other_agent.state = "I"
-                        other_agent.update_state
 
     def handle_grouping(self):
         """Handle the grouping of infected agents and redirect them to the quarantine zone."""
@@ -295,7 +271,30 @@ class Simulation:
                     self.quarantine.redirect_group_to_quarantine(nearby_infected)
     
     def handle_infections(self):
-        infect_agents(self.agents, infection_radius=10, infection_probability=0.1)
+        for agent in self.agents:
+            if agent.state == "I":  # Only infected agents can infect others
+                    for other_agent in self.agents:
+                        if other_agent.state == "S":  # Only infect susceptible agents
+                            distance = agent.position.distance_to(other_agent.position)
+                            if distance <= infection_radius:
+                                # Proximity factor: closer agents have higher chance of infection
+                                proximity_factor = 1 - (distance / infection_radius)
+                                
+                                # Increment duration counter if agents stay close
+                                other_agent.proximity_duration += 1
+
+                                # Infection probability increases with time spent close
+                                infection_probability = infection_rate + (0.01 * other_agent.proximity_duration)
+                                infection_probability = min(1.0, infection_probability)  # Cap at 100%
+
+                                # Determine infection based on probability
+                                if random.random() < infection_probability:
+                                    other_agent.state = "I"
+                                    other_agent.update_state()
+                                    other_agent.proximity_duration = 0  # Reset duration after infection
+                            else:
+                                # Reset proximity duration if agent moves out of range
+                                other_agent.proximity_duration = 0
 
     def handle_quarantine(self):
         for agent in self.agents:
@@ -303,17 +302,32 @@ class Simulation:
                 agent.move_in_quarantine(self.quarantine.rect)
         self.quarantine.steer_agents(self.agents)
 
+    def handle_death(self):
+        global death_count
+        for agent in self.agents:
+            if agent.state == "I":
+                agent.infection_timer += 1
+                if agent.infection_timer >= agent.recovery_duration:
+                    if random.random() < recovery_rate:
+                        agent.state = "R"  # Recover
+                        agent.update_state()  # Update the color
+                    else:
+                        self.agents.remove(agent)  # Simulate death by removing agent
+                        death_count += 1
+
     def draw_legend(self):
     
         infect_text = FONT.render('Infect Random Agent: Press Q', True, BLACK)
         infection_rate_text = FONT.render(f'Infection Rate: {infection_rate:.2f}', True, BLACK)
         recovery_rate_text = FONT.render(f'Recovery Rate: {recovery_rate:.2f}', True, BLACK)
         vaccination_rate_text = FONT.render(f'Vaccination Rate: {vaccination_rate:.2f}', True, BLACK)
+        death_count_text = FONT.render(f'Death count: {death_count}',True, BLACK)
 
         screen.blit(infect_text, (10, 10))
         screen.blit(infection_rate_text, (10, 30))
         screen.blit(recovery_rate_text, (10, 50))
         screen.blit(vaccination_rate_text, (10, 70))
+        screen.blit(death_count_text, (SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30))
 
     def render(self):
         
