@@ -21,18 +21,17 @@ FPS = 144
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Epidemic Simulation")
 clock = pygame.time.Clock()
-
 FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
-slowdown = 1
-speedup = 1
+slowdown = 0.65
+speedup = 1.65
 
-repel_dist = 10
-infection_radius = 30
+repel_radius = 10
+infection_radius = 25
 grouping_radius = 90
 
-infection_probability = 0.7
+infection_probability = 0.5
 recovery_probability = 0.2
 vaccination_succes_probability = 0.6
 
@@ -65,8 +64,7 @@ class Agent:
         self.color = BLUE if self.state == "S" else (RED if self.state == "I" else GREEN)
 
     def update_position(self):
-        """Update the agent's position based on its velocity and speed."""
-        if not self.in_quarantine:  # Only update position if not in quarantine
+        if not self.in_quarantine: 
             self.position += self.velocity * self.speed
             self._bounce_off_walls()
 
@@ -85,15 +83,12 @@ class Agent:
         if self.state == "I":
             pygame.draw.circle(screen, RED, (int(self.position.x), int(self.position.y)), infection_radius, width=1)
         if self.state == "S":
-            pygame.draw.circle(screen, BLUE, (int(self.position.x), int(self.position.y)), repel_dist-5, width=1)
+            pygame.draw.circle(screen, BLUE, (int(self.position.x), int(self.position.y)), repel_radius-5, width=1)
         pygame.draw.circle(screen, self.color, (int(self.position.x), int(self.position.y)), 3)
     
     def move_in_quarantine(self, rectangle):
-        """Move the agent inside the quarantine zone, keeping it within the bounds."""
         if self.in_quarantine:
-            # Make sure the agent stays within the quarantine area by checking bounds
             quarantine_zone = rectangle  # Example zone bounds
-
             if not quarantine_zone.collidepoint(self.position):
                 # If the agent is out of bounds, redirect them towards the quarantine zone center
                 direction_to_center = pygame.math.Vector2(quarantine_zone.centerx, quarantine_zone.centery) - self.position
@@ -101,13 +96,13 @@ class Agent:
 
             self.position += self.velocity * self.speed
 
-    def exit_quarantine(self, rectangle, succes):
+    def exit_quarantine(self, rectangle, succes): # Remove agent from quarantine
             self.in_quarantine = False
             self.state = "R" if succes else "S"
             self.update_state()
             self.position = pygame.math.Vector2(self.position.x, rectangle.top)
 
-    def repel_from_others(self, agents, min_distance=repel_dist):
+    def repel_from_others(self, agents, min_distance=repel_radius):
         """Steer the agent away from others if they are too close."""
         for other_agent in agents:
             if other_agent is not self:  # Don't compare the agent to itself
@@ -132,8 +127,7 @@ class QuarantineZone:
 
     def draw(self):
         """Draw the quarantine zone."""
-        pygame.draw.rect(screen, self.color, self.rect, 2)  # 2 pixel border
-        # Add some transparency to fill
+        pygame.draw.rect(screen, self.color, self.rect, 2)
         s = pygame.Surface((self.rect.width, self.rect.height))
         s.set_alpha(30)
         s.fill(self.color)
@@ -142,7 +136,7 @@ class QuarantineZone:
     def steer_agents(self, agents):
         """Steer non-infected agents away from the quarantine zone."""
         for agent in agents:
-            if agent.state != "I" or agent.will_vax is False:  # Only affect susceptible or recovered agents
+            if agent.state != "I" or agent.will_vax is False:  # Only affect susceptible or recovered agents or anti-vaxxers
                 distance = agent.position.distance_to(pygame.math.Vector2(self.rect.centerx, self.rect.centery))
                 if distance <= self.avoidance_radius:  # Agent is within avoidance range
                     self.steer_away(agent)
@@ -199,7 +193,6 @@ def plot_population_stats(stats):
 
     plot.figure(figsize=(10, 6))
     
-    # Plot agent population
     plot.subplot(3, 1, 1)
     plot.plot(time_steps, susceptible, label='Susceptible', color='blue')
     plot.plot(time_steps, infected, label='Infected', color='red')
@@ -209,7 +202,6 @@ def plot_population_stats(stats):
     plot.legend()
     plot.title('Epidemic Population Over Time')
 
-    # Plot infection and recovery rates
     plot.subplot(3, 1, 2)
     plot.plot(time_steps, infection_rate, label='Infection Rate', color='purple')
     plot.plot(time_steps, death_count, label='Virus Kill Count', color='orange')
@@ -316,7 +308,6 @@ class Simulation:
                     self.__init__()
 
     def update_agents(self):
-
         for agent in self.agents:
             agent.update_position()
             agent.repel_from_others(self.agents)
@@ -337,15 +328,14 @@ class Simulation:
                         group_center += nearby_agent.position
                     group_center /= len(nearby_infected)  # Find the center of the group
 
-                    # Redirect the group toward the quarantine zone
                     self.quarantine.redirect_group_to_quarantine(nearby_infected)
     
     def handle_infections(self):
         global infection_rate
         for agent in self.agents:
-            if agent.state == "I":  # Only infected agents can infect others
+            if agent.state == "I": 
                     for other_agent in self.agents:
-                        if other_agent.state == "S":  # Only infect susceptible agents
+                        if other_agent.state == "S": 
                             distance = agent.position.distance_to(other_agent.position)
                             if distance <= infection_radius:
                                 # Proximity factor: closer agents have higher chance of infection
@@ -358,14 +348,12 @@ class Simulation:
                                 aux_infection_probability = infection_probability + (proximity_factor * other_agent.proximity_duration)
                                 aux_infection_probability = min(0.8, aux_infection_probability)  # Cap at 100%
 
-                                # Determine infection based on probability
                                 if random.random() < aux_infection_probability:
                                     other_agent.state = "I"
                                     other_agent.update_state()
                                     infection_rate += 1
-                                    other_agent.proximity_duration = 0  # Reset duration after infection
+                                    other_agent.proximity_duration = 0  
                             else:
-                                # Reset proximity duration if agent moves out of range
                                 other_agent.proximity_duration = 0
 
     def handle_quarantine(self):
@@ -398,25 +386,24 @@ class Simulation:
             if agent.state == "I":
                 agent.infection_timer += 1
                 if agent.infection_timer >= agent.recovery_duration:
-                    if random.random() <= recovery_probability:
+                    if random.random() < recovery_probability:
                         recovery_rate += 1
-                        agent.state = "S"  # Recover
-                        agent.update_state()  # Update the color
+                        agent.state = "S"  
+                        agent.update_state()  
                     else:
-                        self.agents.remove(agent)  # Simulate death by removing agent
+                        self.agents.remove(agent)  
                         death_count += 1
     
     def slow_down_infected_agents(self, slowdown_factor=slowdown):
-        """Slows down all infected agents by a given factor."""
         for agent in self.agents:
-            if agent.state == "I" and agent.slowdown is False:  # Check if the agent is infected
-                agent.speed *= slowdown_factor  # Reduce the speed by the slowdown factor
+            if agent.state == "I" and agent.slowdown is False:  
+                agent.speed *= slowdown_factor  
                 agent.slowdown = True
 
     def speed_up_recovered_agents(self, speedup_factor = speedup):
         for agent in self.agents:
-            if agent.state == "R" and agent.speedup is False:  # Check if the agent is infected
-                agent.speed *= speedup_factor  # Reduce the speed by the slowdown factor
+            if agent.state == "R" and agent.speedup is False:  
+                agent.speed *= speedup_factor  
                 agent.speedup = True
 
 
