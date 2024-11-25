@@ -28,6 +28,10 @@ FONT = pygame.font.SysFont(None, 24)
 infection_radius = 30
 grouping_radius = 15
 
+infection_rate = 0.1
+recovery_rate = 0.6
+vaccination_rate = 0.3
+
 class Agent:
     def __init__(self, position=None, velocity=None, speed=2, state="S"):
         self.position = position or pygame.math.Vector2(random.uniform(0, SCREEN_WIDTH), random.uniform(0, SCREEN_HEIGHT))
@@ -233,13 +237,30 @@ class Simulation:
 
     def handle_events(self):
    
+        global infection_rate
+        global recovery_rate
+        global vaccination_rate
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_q:
                     self.infect_agent()
-    
+                elif event.key == pygame.K_0:
+                   infection_rate = min(1.00, infection_rate + 0.05)
+                elif event.key == pygame.K_1:
+                    infection_rate = max(0.00, infection_rate - 0.05)
+                elif event.key == pygame.K_2:
+                   recovery_rate = min(1.00, recovery_rate + 0.05)
+                elif event.key == pygame.K_3:
+                   recovery_rate = max(0.00, recovery_rate - 0.05)
+                elif event.key == pygame.K_4:
+                   vaccination_rate = min(1.00, vaccination_rate + 0.05)
+                elif event.key == pygame.K_5:
+                   vaccination_rate = max(0.00, vaccination_rate - 0.05)
+
+                
     def infect_agent(self):
         self.agents[random.randint(0, len(self.agents) - 1)].state = "I"
 
@@ -282,11 +303,23 @@ class Simulation:
                 agent.move_in_quarantine(self.quarantine.rect)
         self.quarantine.steer_agents(self.agents)
 
+    def draw_legend(self):
+    
+        infect_text = FONT.render('Infect Random Agent: Press Q', True, BLACK)
+        infection_rate_text = FONT.render(f'Infection Rate: {infection_rate:.2f}', True, BLACK)
+        recovery_rate_text = FONT.render(f'Recovery Rate: {recovery_rate:.2f}', True, BLACK)
+        vaccination_rate_text = FONT.render(f'Vaccination Rate: {vaccination_rate:.2f}', True, BLACK)
+
+        screen.blit(infect_text, (10, 10))
+        screen.blit(infection_rate_text, (10, 30))
+        screen.blit(recovery_rate_text, (10, 50))
+        screen.blit(vaccination_rate_text, (10, 70))
+
     def render(self):
         
         screen.fill(WHITE)
 
-        #self.draw_legend()
+        self.draw_legend()
         #self.draw_stats()
 
         for agent in self.agents:
@@ -304,5 +337,4 @@ class Simulation:
 if __name__ == "__main__":
     sim = Simulation()
     sim.run()
-
 
