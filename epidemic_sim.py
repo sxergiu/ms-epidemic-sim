@@ -50,7 +50,8 @@ class Agent:
         self.proximity_duration = 0  # Time spent near an infected agent
         self.in_quarantine = False
         self.time_in_quarantine = 0
-        self.will_vax = False if random.random() < vaccination_rate else True
+        self.will_vax = True if random.random() < vaccination_rate else False
+        self.slowdown = False
 
     def update_state(self):
         self.color = BLUE if self.state == "S" else (RED if self.state == "I" else GREEN)
@@ -73,6 +74,8 @@ class Agent:
         self.position.y = max(0, min(self.position.y, SCREEN_HEIGHT))
 
     def draw(self):
+        if self.state == "I":
+            pygame.draw.circle(screen, RED, (int(self.position.x), int(self.position.y)), infection_radius, width=1)
         pygame.draw.circle(screen, self.color, (int(self.position.x), int(self.position.y)), 3)
     
     def move_in_quarantine(self, rectangle):
@@ -163,7 +166,7 @@ def track_history(agents, stats):
     susceptible = sum(1 for a in agents if a.state == "S")
     infected = sum(1 for a in agents if a.state == "I")
     recovered = sum(1 for a in agents if a.state == "R")
-    stats.append((susceptible, infected, recovered))
+    stats.append((susceptible, infected, recovered, death_count))
 
 
 class Simulation:
@@ -176,8 +179,8 @@ class Simulation:
             self.agents[random.randint(0, len(self.agents) - 1)].state = "I"
 
         self.quarantine = QuarantineZone(
-            SCREEN_WIDTH - 500,
-            SCREEN_HEIGHT - 500,
+            SCREEN_WIDTH - 600,
+            SCREEN_HEIGHT - 400,
             350,
             200,
             200,
@@ -197,6 +200,7 @@ class Simulation:
             self.handle_infections()
             self.handle_grouping()
             self.handle_death()
+            self.slow_down_infected_agents()
             self.render()
 
         pygame.quit()
@@ -227,6 +231,8 @@ class Simulation:
                    vaccination_succes_probability = min(1.00, vaccination_succes_probability + 0.05)
                 elif event.key == pygame.K_5:
                    vaccination_succes_probability = max(0.00, vaccination_succes_probability - 0.05)
+                elif event.key == pygame.K_r:
+                    self.__init__()
 
     def update_agents(self):
 
@@ -302,6 +308,14 @@ class Simulation:
                     else:
                         self.agents.remove(agent)  # Simulate death by removing agent
                         death_count += 1
+    
+    def slow_down_infected_agents(self, slowdown_factor=0.65):
+        """Slows down all infected agents by a given factor."""
+        for agent in self.agents:
+            if agent.state == "I" and agent.slowdown is False:  # Check if the agent is infected
+                agent.speed *= slowdown_factor  # Reduce the speed by the slowdown factor
+                agent.slowdown = True
+
 
     def draw_legend(self):
     
