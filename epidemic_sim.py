@@ -24,16 +24,19 @@ clock = pygame.time.Clock()
 FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
+no_agents = 200
+no_infected = 1
+
 slowdown = 0.65
 speedup = 1.65
 
 repel_radius = 10
-infection_radius = 25
+infection_radius = 50
 grouping_radius = 90
 
 infection_probability = 0.5
 recovery_probability = 0.2
-vaccination_succes_probability = 0.6
+vaccination_succes_probability = 0.0
 
 vaccination_rate = 0.8
 
@@ -98,6 +101,7 @@ class Agent:
 
     def exit_quarantine(self, rectangle, succes): # Remove agent from quarantine
             self.in_quarantine = False
+            self.will_vax = False
             self.state = "R" if succes else "S"
             self.update_state()
             self.position = pygame.math.Vector2(self.position.x, rectangle.top)
@@ -238,7 +242,7 @@ def track_history(agents, stats):
 
 class Simulation:
      
-    def __init__(self, num_agents = 100, num_infected = 0):
+    def __init__(self, num_agents = no_agents, num_infected = no_infected):
         
         global infection_rate
         infection_rate += num_infected
