@@ -25,6 +25,8 @@ clock = pygame.time.Clock()
 FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
+region = 'Afghanistan'
+
 no_agents = 200
 no_infected = 10
 
@@ -37,7 +39,7 @@ grouping_radius = 90
 
 infection_probability = 0.2
 recovery_probability = 0.2
-vaccination_succes_probability = 0.1
+vaccination_succes_probability = 0.05
 
 vaccination_rate = 0.8
 
@@ -244,8 +246,9 @@ def track_history(agents, stats):
 def document_probabilities():
     global infection_probability
     global recovery_probability
+    global vaccination_rate
 
-    infection_probability, recovery_probability = extract_probabilities()
+    infection_probability, recovery_probability, vaccination_rate = extract_probabilities(selected_region=region)
 
 class Simulation:
      
