@@ -1,6 +1,7 @@
 import pygame
 import random
 import matplotlib.pyplot as plot
+from data import extract_probabilities
 
 # Initialize Pygame
 pygame.init()
@@ -25,18 +26,18 @@ FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
 no_agents = 200
-no_infected = 1
+no_infected = 10
 
 slowdown = 0.65
 speedup = 1.65
 
 repel_radius = 10
-infection_radius = 50
+infection_radius = 30
 grouping_radius = 90
 
-infection_probability = 0.5
+infection_probability = 0.2
 recovery_probability = 0.2
-vaccination_succes_probability = 0.0
+vaccination_succes_probability = 0.1
 
 vaccination_rate = 0.8
 
@@ -240,9 +241,15 @@ def track_history(agents, stats):
 
     stats.append((susceptible, infected, recovered, death_count, failed_vax_rate, successful_vax_rate, infection_rate, recovery_rate ))
 
+def document_probabilities():
+    global infection_probability
+    global recovery_probability
+
+    infection_probability, recovery_probability = extract_probabilities()
+
 class Simulation:
      
-    def __init__(self, num_agents = no_agents, num_infected = no_infected):
+    def __init__(self, num_agents = no_agents, num_infected = no_infected, withDataset = False):
         
         global infection_rate
         infection_rate += num_infected
@@ -263,6 +270,10 @@ class Simulation:
 
         self.stats = []
         self.running = True
+
+        self.withDataset = withDataset
+        if( withDataset is True ):
+            document_probabilities()
     
     def run(self):
         
@@ -446,6 +457,6 @@ class Simulation:
         pygame.display.flip()        
 
 if __name__ == "__main__":
-    sim = Simulation()
+    sim = Simulation(withDataset=True)
     sim.run()
 
