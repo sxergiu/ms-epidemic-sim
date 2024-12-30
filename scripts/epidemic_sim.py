@@ -25,7 +25,8 @@ clock = pygame.time.Clock()
 FONT = pygame.font.SysFont(None, 24)
 
 # Simulation constants
-region = 'Afghanistan'
+# region = 'France'
+region = 'Israel'
 
 no_agents = 200
 no_infected = 10
